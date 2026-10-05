@@ -1,0 +1,8 @@
+product: jvm/lib
+
+apply:
+  - //templates/coverage.module-template.yaml
+
+plugins:
+  kover:
+    minimumLineCoverage: 50

@@ -1,0 +1,6 @@
+modules:
+  - example
+  - plugins/kover
+
+plugins:
+  - //plugins/kover

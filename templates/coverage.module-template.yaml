@@ -1,0 +1,4 @@
+plugins:
+  kover:
+    enabled: true
+    minimumLineCoverage: 80
