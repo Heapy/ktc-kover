@@ -1,4 +1,4 @@
-package io.heapy.ktc.kover
+package io.heapy.ktc.plugins.kover
 
 import java.nio.file.Files
 import java.nio.file.Path

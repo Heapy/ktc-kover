@@ -1,4 +1,4 @@
-package io.heapy.ktc.kover
+package io.heapy.ktc.plugins.kover
 
 import org.jetbrains.amper.plugins.Configurable
 

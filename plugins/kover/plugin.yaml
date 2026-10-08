@@ -1,6 +1,6 @@
 tasks:
   koverReport:
-    action: !io.heapy.ktc.kover.koverReport
+    action: !io.heapy.ktc.plugins.kover.koverReport
       projectDir: ${project.rootDir}
       moduleName: ${module.name}
       classes: ${module.classes}
@@ -11,7 +11,7 @@ tasks:
       outputDir: ${taskOutputDir}
       settings: ${pluginSettings}
   koverCheck:
-    action: !io.heapy.ktc.kover.koverCheck
+    action: !io.heapy.ktc.plugins.kover.koverCheck
       reportDir: ${tasks.koverReport.action.outputDir}
       minimumLineCoverage: ${pluginSettings.minimumLineCoverage}
 
