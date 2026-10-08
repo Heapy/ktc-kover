@@ -99,7 +99,7 @@ The nested test run uses the debug/default test variant.
 
 ```sh
 ./kotlin test -m kover
-python3 scripts/smoke.py
+kotlinr scripts/smoke.main.kts
 ```
 
 Unit tests cover exact threshold arithmetic, aggregate XML selection, invalid counts,
@@ -157,3 +157,11 @@ commands and results, `02-report.log` through `06-recovery.log` retain execution
 evidence, and `build/tasks/_build-info_koverReport@kover/html/index.html` is the final
 report. The consumer keeps the plugin enabled with a 66% threshold; original source
 and test files are unchanged. This trial did not cover the Native runtime or Linux.
+
+## Running verification scripts
+
+The `.main.kts` scripts require JDK 25 and Kotlin 2.4.21+ (`kotlinr` on `PATH`).
+Run them with `kotlinr scripts/<name>.main.kts` from the repository root.
+The Kotlin Toolchain `./kotlin` command is a separate executable. CI installs the script runner
+through `.github/actions/setup-kotlin-script`; the first script run compiles the script and
+resolves any pinned Maven dependencies. Later runs use the local script cache.
