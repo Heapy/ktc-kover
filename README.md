@@ -25,14 +25,14 @@ An outer `--build-dir` is supported; outputs follow that directory.
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-kover --branch main --enable-in app
+./ktc-plugins add Heapy/ktc-kover --tag v0.1.1 --enable-in app
 ```
 
 Replace `app` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
 declares selector `kover`, module `plugins/kover`, and `LICENSE`; the installer registers
 and enables the plugin automatically. Commit the generated manifest, lockfile, and vendored
-sources. The lockfile pins the resolved commit; use `--commit <full-40-character-SHA>`
-instead of `--branch main` to select a specific revision. Templates are copied separately.
+sources. The lockfile pins the resolved commit. Use `--branch main` for development snapshots
+or `--commit <full-40-character-SHA>` for a specific revision. Templates are copied separately.
 
 For manual installation:
 

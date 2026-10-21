@@ -2,7 +2,6 @@ package io.heapy.ktc.plugins.kover
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlinx.kover.features.jvm.ClassFilters
@@ -153,16 +152,8 @@ private fun readXml(xml: Path): Element {
 }
 
 private fun runTests(command: List<String>, projectDir: Path, timeoutSeconds: Int) {
-    val process = ProcessBuilder(command).directory(projectDir.toFile()).inheritIO().start()
-    try {
-        check(process.waitFor(timeoutSeconds.toLong(), TimeUnit.SECONDS)) { "Instrumented tests timed out after $timeoutSeconds seconds" }
-        check(process.exitValue() == 0) { "Instrumented tests failed (exit ${process.exitValue()}); no coverage report generated" }
-    } finally {
-        if (process.isAlive) {
-            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
-            process.destroyForcibly()
-        }
-    }
+    val exitCode = executeProcess(command, projectDir, timeoutSeconds)
+    check(exitCode == 0) { "Instrumented tests failed (exit $exitCode); no coverage report generated" }
 }
 
 private fun removeTree(directory: Path) {
