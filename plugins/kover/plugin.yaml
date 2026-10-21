@@ -1,4 +1,15 @@
+# Keep Kover artifact versions aligned with KOVER_VERSION in src/Kover.kt.
 tasks:
+  koverPrepare:
+    action: !io.heapy.ktc.plugins.kover.koverPrepare
+      projectDir: ${project.rootDir}
+      moduleName: ${module.name}
+      agentClasspath:
+        dependencies:
+          - org.jetbrains.kotlinx:kover-jvm-agent:0.9.11
+      outputDir: ${taskOutputDir}
+      reportDir: ${tasks.koverReport.action.outputDir}
+      settings: ${pluginSettings}
   koverReport:
     action: !io.heapy.ktc.plugins.kover.koverReport
       projectDir: ${project.rootDir}
@@ -16,6 +27,7 @@ tasks:
       minimumLineCoverage: ${pluginSettings.minimumLineCoverage}
 
 commands:
+  - koverPrepare
   - koverReport
 
 checks:

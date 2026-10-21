@@ -96,4 +96,63 @@ temporary("ktc kover smoke ") { temporary ->
     module.writeText(originalModule)
     toolchain(project, "check", "koverCheck", "-m", "example")
     println("Coverage smoke passed: real reports, threshold, failed tests, empty selection, recovery, paths with spaces.")
+
+    // The sequential runner must execute tests once and reuse both main and test compilation outputs.
+    val sharedBuild = project.resolve("coverage build")
+    val runs = project.resolve("test-runs.txt")
+    val countedTest = originalTest.replace("fun greetsByName() {", """
+        fun greetsByName() {
+            java.io.File("${runs.path.replace("\\", "\\\\")}").appendText("run\n")
+    """.trimIndent())
+    test.writeText(countedTest)
+    fun coverage(succeeds: Boolean = true, diagnostic: String? = null, extra: List<String> = emptyList()): String {
+        val result = command(project, listOf("kotlinr", "plugins/kover/coverage.main.kts", "-m", "example",
+            "--build-dir", sharedBuild.path) + extra)
+        check((result.exitCode == 0) == succeeds) { "Unexpected coverage exit ${result.exitCode}:\n${result.output}" }
+        check(diagnostic == null || diagnostic in result.output) { "Missing $diagnostic:\n${result.output}" }
+        println("PASS: sequential coverage (${if (succeeds) "success" else "expected failure"})")
+        return result.output
+    }
+    coverage()
+    check(runs.readLines().size == 1) { "Tests ran more than once" }
+    check(sharedBuild.walkTopDown().none { it.isDirectory && it.name == "test-build" }) { "Created a nested test build" }
+    val compiled = sharedBuild.resolve("artifacts/CompiledJvmArtifact").walkTopDown()
+        .filter { it.name in setOf("Greeter.class", "GreeterTest.class") }
+        .associate { it.toPath() to Files.getLastModifiedTime(it.toPath()) }
+    check(compiled.size == 2) { "Expected main and test classes in shared build: $compiled" }
+    coverage()
+    check(runs.readLines().size == 2) { "Tests were skipped or duplicated on repeat invocation" }
+    check(compiled.all { (path, stamp) -> Files.getLastModifiedTime(path) == stamp }) { "Unchanged classes were recompiled" }
+    val sharedXml = sharedBuild.resolve("tasks/_example_koverReport@kover/coverage.xml")
+    val sharedHtml = sharedXml.parentFile.resolve("html")
+    check(sharedXml.isFile && sharedHtml.resolve("index.html").isFile)
+    val preparedBinary = sharedBuild.resolve("tasks/_example_koverPrepare@kover/coverage.ic")
+    check(preparedBinary.isFile && preparedBinary.length() > 0) { "Preparation must own the coverage binary" }
+    check(!sharedXml.parentFile.resolve("coverage.ic").exists()) { "Session reporting wrote a binary into its output directory" }
+    module.writeText(originalModule.replace("minimumLineCoverage: 50", "minimumLineCoverage: 100"))
+    coverage(succeeds = false, diagnostic = "below 100%")
+    check(sharedXml.isFile) { "Threshold failure should retain reports" }
+    module.writeText(originalModule)
+    test.writeText(countedTest.replace("\"Hello, Kotlin!\"", "\"wrong expectation\""))
+    coverage(succeeds = false, diagnostic = "Coverage command failed")
+    check(!sharedXml.exists() && !sharedHtml.exists()) { "Failed tests retained stale reports" }
+    test.writeText(countedTest)
+    module.writeText(originalModule + "    includeTags: [\"missing-tag\"]\n")
+    coverage(succeeds = false, diagnostic = "no tests were discovered")
+    check(!sharedXml.exists())
+    module.writeText(originalModule)
+    coverage()
+    test.writeText(countedTest.replace("fun greetsByName() {", "fun greetsByName() { Thread.sleep(10_000)"))
+    coverage(succeeds = false, diagnostic = "timed out", extra = listOf("--test-timeout-seconds", "1"))
+    check(!sharedXml.exists() && !sharedHtml.exists()) { "Timeout retained stale reports" }
+    test.writeText(countedTest)
+    coverage()
+    copy(project.resolve("example"), project.resolve("second"))
+    val projectYaml = project.resolve("project.yaml")
+    projectYaml.writeText(projectYaml.readText().replace("  - example", "  - example\n  - second"))
+    val previousRuns = runs.readLines().size
+    coverage(extra = listOf("-m", "second"))
+    check(runs.readLines().size == previousRuns + 2) { "Multi-module coverage skipped or duplicated tests" }
+    check(sharedBuild.resolve("tasks/_second_koverReport@kover/coverage.xml").isFile)
+    println("Sequential coverage smoke passed: one test run, reused compilation, custom build path, failures, timeout and recovery.")
 }

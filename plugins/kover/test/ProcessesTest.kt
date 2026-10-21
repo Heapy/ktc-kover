@@ -38,7 +38,7 @@ class ProcessesTest {
     fun timeoutStillStopsAProcessWithOpenOutputPipes() {
         captureOutput {
             val failure = assertFailsWith<IllegalStateException> {
-                executeProcess(childCommand("sleep"), Path.of("."), 2)
+                executeProcess(childCommand("sleep"), Path.of("."), 5)
             }
             assertContains(failure.message.orEmpty(), "Process timed out")
         }

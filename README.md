@@ -4,15 +4,14 @@ A self-contained local Kotlin Toolchain plugin for JVM coverage with **Kover 0.9
 It runs the project's tests with the Kover agent, generates HTML and JaCoCo-compatible
 XML, and checks a minimum line coverage percentage.
 
-Initial implementation, pinned to **Kotlin Toolchain 0.13.0** and its default Kotlin
-2.4.20. Supported hosts: macOS and Linux. Each coverage invocation performs a fresh
-test run using the consuming project's own wrapper and test settings.
+Pinned to **Kotlin Toolchain 0.13.0** and its default Kotlin 2.4.20. Supported hosts:
+macOS and Linux. Coverage uses the consuming project's own wrapper and test settings.
+The sequential runner reuses the normal build directory and executes JVM tests once.
 
 ## Try it
 
 ```sh
 ./kotlin check koverCheck -m example
-./kotlin do koverReport -m example
 ```
 
 The example intentionally leaves two of five executable lines uncovered: a 50%
@@ -22,10 +21,14 @@ An outer `--build-dir` is supported; outputs follow that directory.
 
 ## Install into another project
 
+For the sequential CI runner, install **JDK 25 and Kotlin 2.4.21+** with `kotlinr`
+on `PATH`. This script runner is separate from the project's pinned `./kotlin`
+Toolchain wrapper. The standalone command above uses only the wrapper.
+
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-kover --tag v0.1.1 --enable-in app
+./ktc-plugins add Heapy/ktc-kover --tag v0.2.0 --enable-in app
 ```
 
 Replace `app` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -58,7 +61,7 @@ plugins:
     excludes: ["com.example.generated.*"]
     includeTags: []
     excludeTags: []
-    testTimeoutSeconds: 600
+    testTimeoutSeconds: 1800
 ```
 
 All settings are optional. The minimum defaults to 0; an empty class selection or
@@ -73,27 +76,92 @@ self-contained plugin module and includes the root license automatically.
 `templates/coverage.module-template.yaml` is an optional reusable 80% policy. Copy it
 separately if desired; the installer payload is the plugin module and license.
 
-## Execution and scope
+## Efficient CI execution
 
-`koverReport` launches `./kotlin test -m <module> --platform jvm --jvm-args ...` with
-Kover attached. The child uses its own `test-build` directory under the report task's
-output. This preserves toolchain test discovery, test dependencies, JDK provisioning,
-and test settings without depending on private test-classpath APIs or sharing build
-locks with the parent. It costs an additional compilation on the first coverage run.
-The original compiled classes and main source roots are taken from the public plugin
-model for reporting. Only the selected module's JVM main classes are reported.
+The runner ships inside the installed plugin module. From the consumer project root:
 
-The report task always executes. It removes old binary/XML/HTML reports first, disables
-agent report append, and fails if the test process fails, times out, or executes no tests.
-`koverCheck` depends on that fresh report and compares the exact aggregate line ratio
-without rounding. A failed threshold retains reports for inspection.
+```sh
+kotlinr plugins/kover/coverage.main.kts -m app
+```
 
-Use `./kotlin check koverCheck` to run coverage checks across enabled modules. A plain
-`./kotlin check` also runs ordinary tests, so those tests run twice. Reports from
-separate modules are not merged. This initial version does not support Android,
-Native/JS coverage, Windows hosts, branch thresholds, or cross-module aggregation.
-JVM tests of a KMP module may work, but the maintained example is a JVM library.
-The nested test run uses the debug/default test variant.
+Repeat `-m` to select several coverage-enabled modules; omit it to cover all enabled
+modules. The runner prepares all selected modules, executes each module's JVM tests
+once with its own agent configuration, and then generates reports and checks thresholds.
+All toolchain commands run sequentially in the **same build directory**. There is no
+nested toolchain invocation or separate `test-build` compilation tree. Unchanged main
+and test compilation outputs are reused between commands and subsequent invocations.
+
+Use this command **in place of** the ordinary JVM test run for covered modules.
+Other modules and platforms still need their normal tests. For example:
+
+```sh
+# Instrumented JVM tests and coverage check for app:
+kotlinr plugins/kover/coverage.main.kts -m app
+# JVM tests for modules not covered above (including plugin modules):
+./kotlin test --platform jvm --exclude-module app
+# Keep the project's existing non-JVM test matrix and named non-coverage checks.
+```
+
+Do not subsequently run `koverCheck` again or an unfiltered `./kotlin check`: the
+standalone coverage task would run tests again. Run the remaining checks by name,
+for example `./kotlin check apiCheck ktlintCheck`, with the checks enabled in your project.
+
+The runner requires JDK 25 and Kotlin 2.4.21+ (`kotlinr` on `PATH`), like the verification
+scripts. `--project-dir` defaults to the current directory. `--build-dir` defaults to
+`KOTLIN_TOOLCHAIN_BUILD_DIR`, or `build` under the project root. Relative build paths
+are resolved against the project root. For example:
+
+```sh
+kotlinr plugins/kover/coverage.main.kts -m app \
+  --build-dir "build/ci coverage" \
+  --build-timeout-seconds 1800 \
+  --test-timeout-seconds 3600
+```
+
+`--build-timeout-seconds` is the budget for each preparation/reporting command (default
+1800 seconds). Each test command uses the module's `testTimeoutSeconds`, now defaulting
+to 1800 seconds; `--test-timeout-seconds` overrides it for this run. **The test-command
+budget still includes any required test/dependency compilation.** The public plugin API
+does not expose a separate test-compilation artifact, so these are command budgets,
+not a promise of an execution-only test timeout. Module tag filters remain effective.
+
+Preparation clears the old binary in its own output directory. Reporting reads that
+binary from the session manifest and clears old XML/HTML reports in its own output
+directory, including after test failures and timeouts. A fresh temporary session
+records successful test commands and newly written test results. Reporting rejects a
+missing success marker, zero executed tests, or missing/empty coverage. Test failures
+and timeouts stop the pipeline; a threshold failure retains the new reports. The runner
+serializes coverage sessions using a lock in the build directory. Avoid other builds
+or source edits against that directory while a coverage session is in progress.
+
+`koverPrepare` is an internal command used by the runner. It does not compile consumer
+sources or launch tests. The runner passes its temporary session to the toolchain;
+`koverReport` then reads that session instead of starting another build.
+
+## Standalone tasks and scope
+
+Existing commands remain compatible:
+
+```sh
+./kotlin check koverCheck -m example
+./kotlin do koverReport -m example
+```
+
+Without a runner session, `koverReport` launches instrumented JVM tests in its isolated
+`test-build` directory as before. These convenience commands retain the additional
+compilation cost. A plain `./kotlin check` runs ordinary tests as well, duplicating the
+covered JVM tests. Prefer the sequential runner in CI.
+
+Reports retain their existing paths under `build/tasks/*_koverReport@kover/`, including
+with a custom build directory. Only the selected module's JVM main classes are reported,
+using original compiled classes and main source roots from the public plugin model.
+The report task always executes; `koverCheck` compares the exact aggregate line ratio
+without rounding.
+
+Reports from separate modules are not merged. Android, Native/JS coverage, Windows hosts,
+branch thresholds and cross-module aggregation remain unsupported. JVM tests of a KMP
+module may work, but the maintained example is a JVM library. Tests use the debug/default
+variant.
 
 ## Develop and verify
 
@@ -106,7 +174,9 @@ Unit tests cover exact threshold arithmetic, aggregate XML selection, invalid co
 external-DTD isolation, argument quoting and option injection rejection. The smoke
 script uses a temporary consumer path containing spaces and checks real instrumentation,
 non-empty HTML/XML, unmet thresholds, test failure propagation, empty tag selections,
-stale-report removal and recovery. CI runs these on Ubuntu and macOS.
+stale-report removal and recovery. It also checks that the sequential runner executes
+tests once per invocation, reuses unchanged main/test classes, honors custom build paths
+and timeouts, and recovers after failures. CI runs these on Ubuntu and macOS.
 
 ## Upstream references
 

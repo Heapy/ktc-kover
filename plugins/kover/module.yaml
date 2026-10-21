@@ -4,5 +4,6 @@ pluginInfo:
   id: kover
   settingsClass: io.heapy.ktc.plugins.kover.KoverSettings
 
+# Keep Kover artifact versions aligned with KOVER_VERSION in src/Kover.kt.
 dependencies:
   - org.jetbrains.kotlinx:kover-features-jvm:0.9.11

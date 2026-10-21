@@ -16,5 +16,5 @@ interface KoverSettings {
     val excludeTags: List<String> get() = emptyList()
 
     /** Timeout for the instrumented test build, including compilation. */
-    val testTimeoutSeconds: Int get() = 600
+    val testTimeoutSeconds: Int get() = 1800
 }

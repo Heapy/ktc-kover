@@ -15,7 +15,9 @@ import org.jetbrains.amper.plugins.Output
 import org.jetbrains.amper.plugins.TaskAction
 import org.w3c.dom.Element
 
-/** Always performs a fresh instrumented test run before producing reports. */
+internal const val KOVER_VERSION = "0.9.11"
+
+/** Reports the current coverage session, or runs isolated tests for standalone invocations. */
 @TaskAction(executionAvoidance = ExecutionAvoidance.Disabled)
 fun koverReport(
     @Input(inferTaskDependency = false) projectDir: Path,
@@ -33,34 +35,35 @@ fun koverReport(
     require(settings.testTimeoutSeconds > 0) { "testTimeoutSeconds must be positive" }
     val wrapper = projectDir.resolve("kotlin")
     require(Files.isRegularFile(wrapper)) { "Coverage requires the project's pinned ./kotlin wrapper: $wrapper" }
-    val agent = agentClasspath.resolvedFiles.singleOrNull { it.fileName.toString() == "kover-jvm-agent-0.9.11.jar" }
-        ?: error("Expected the resolved kover-jvm-agent-0.9.11.jar")
-    Files.createDirectories(outputDir)
-    val binary = outputDir.resolve("coverage.ic")
+    val agent = koverAgent(agentClasspath)
+    clearReports(outputDir)
     val xml = outputDir.resolve("coverage.xml")
     val html = outputDir.resolve("html")
-    // Never let a failed or empty test run reuse coverage from a previous invocation.
-    Files.deleteIfExists(binary)
-    Files.deleteIfExists(xml)
-    removeTree(html)
-    val arguments = outputDir.resolve("agent.args")
-    Files.writeString(arguments, agentArguments(binary, settings.includes, settings.excludes))
-    val childBuild = outputDir.resolve("test-build")
-    removeTree(childBuild.resolve("reports"))
-    val command = mutableListOf(
-        "sh", wrapper.toString(), "test", "--project-dir", projectDir.toString(),
-        "--build-dir", childBuild.toString(), "-m", moduleName, "--platform", "jvm",
-        "--jvm-args", quoteJvmArgument("-javaagent:$agent=file:$arguments"),
-    )
-    settings.includeTags.forEach { command += listOf("--include-tag", it) }
-    settings.excludeTags.forEach { command += listOf("--exclude-tag", it) }
-    println("Running instrumented JVM tests for $moduleName")
-    runTests(command, projectDir, settings.testTimeoutSeconds)
-    require(hasExecutedTests(childBuild.resolve("reports"))) {
-        "No JVM tests executed. Check the selected module and tag filters."
-    }
-    require(Files.isRegularFile(binary) && Files.size(binary) > 0) {
-        "No coverage was collected. The selected module must have JVM tests; check tag filters."
+    val session = coverageSessionDirectory()
+    val binary = if (session != null) {
+        validateSession(session, projectDir, moduleName, outputDir)
+    } else {
+        val binary = outputDir.resolve("coverage.ic")
+        val arguments = outputDir.resolve("agent.args")
+        Files.writeString(arguments, agentArguments(binary, settings.includes, settings.excludes))
+        val childBuild = outputDir.resolve("test-build")
+        removeTree(childBuild.resolve("reports"))
+        val command = mutableListOf(
+            "sh", wrapper.toString(), "test", "--project-dir", projectDir.toString(),
+            "--build-dir", childBuild.toString(), "-m", moduleName, "--platform", "jvm",
+            "--jvm-args", quoteJvmArgument("-javaagent:$agent=file:$arguments"),
+        )
+        settings.includeTags.forEach { command += listOf("--include-tag", it) }
+        settings.excludeTags.forEach { command += listOf("--exclude-tag", it) }
+        println("Running instrumented JVM tests for $moduleName")
+        runTests(command, projectDir, settings.testTimeoutSeconds)
+        require(hasExecutedTests(childBuild.resolve("reports"))) {
+            "No JVM tests executed. Check the selected module and tag filters."
+        }
+        require(Files.isRegularFile(binary) && Files.size(binary) > 0) {
+            "No coverage was collected. The selected module must have JVM tests; check tag filters."
+        }
+        binary
     }
     val filters = ClassFilters(
         settings.includes.toSet(), settings.excludes.toSet(), emptySet(), emptySet(), emptySet(), emptySet(),
@@ -76,6 +79,10 @@ fun koverReport(
     require(coverage.total > 0) { "No executable lines remain in the coverage report; check class filters." }
     println("Kover reports: $xml and ${html.resolve("index.html")}")
 }
+
+internal fun koverAgent(classpath: Classpath): Path =
+    classpath.resolvedFiles.singleOrNull { it.fileName.toString() == "kover-jvm-agent-$KOVER_VERSION.jar" }
+        ?: error("Expected the resolved kover-jvm-agent-$KOVER_VERSION.jar")
 
 @TaskAction
 fun koverCheck(@Input reportDir: Path, minimumLineCoverage: Int) {
@@ -156,7 +163,7 @@ private fun runTests(command: List<String>, projectDir: Path, timeoutSeconds: In
     check(exitCode == 0) { "Instrumented tests failed (exit $exitCode); no coverage report generated" }
 }
 
-private fun removeTree(directory: Path) {
+internal fun removeTree(directory: Path) {
     if (!Files.exists(directory)) return
     Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
 }
