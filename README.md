@@ -28,7 +28,7 @@ Toolchain wrapper. The standalone command above uses only the wrapper.
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-kover --tag v0.2.0 --enable-in app
+./ktc-plugins add Heapy/ktc-kover --tag v0.2.1 --enable-in app
 ```
 
 Replace `app` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -131,6 +131,11 @@ directory, including after test failures and timeouts. A fresh temporary session
 records successful test commands and newly written test results. Reporting rejects a
 missing success marker, zero executed tests, or missing/empty coverage. Test failures
 and timeouts stop the pipeline; a threshold failure retains the new reports. The runner
+preserves JUnit XML for each module in `build/tasks/*_koverPrepare@kover/test-results/`
+after session cleanup, including XML produced by failing tests. Each module's next run
+replaces its retained results. Only that module's JVM reports under `build/reports/`
+are cleared before testing; reports from other modules and platforms are preserved.
+These paths follow `--build-dir` when set. The runner
 serializes coverage sessions using a lock in the build directory. Avoid other builds
 or source edits against that directory while a coverage session is in progress.
 
@@ -176,7 +181,8 @@ script uses a temporary consumer path containing spaces and checks real instrume
 non-empty HTML/XML, unmet thresholds, test failure propagation, empty tag selections,
 stale-report removal and recovery. It also checks that the sequential runner executes
 tests once per invocation, reuses unchanged main/test classes, honors custom build paths
-and timeouts, and recovers after failures. CI runs these on Ubuntu and macOS.
+and timeouts, recovers after failures, and retains both modules' JUnit reports without
+deleting other module/platform diagnostics. CI runs these on Ubuntu and macOS.
 
 ## Upstream references
 

@@ -8,7 +8,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.Properties
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 val usage = """
@@ -99,12 +98,25 @@ FileChannel.open(build.resolve("kover-run.lock").toPath(), StandardOpenOption.CR
                             testArguments += listOf(flag, properties.getProperty("$name.$tag"))
                         }
                     }
-                    val reports = build.resolve("reports")
+                    // Only clear this module's JVM reports; other modules/platforms belong to CI too.
+                    val reports = build.resolve("reports").resolve(module).resolve("jvm")
                     check(reports.deleteRecursively()) { "Could not clear test reports: $reports" }
-                    runToolchain(session, testArguments, testTimeout ?: properties.getProperty("testTimeoutSeconds").toLong())
+                    val retained = File(properties.getProperty("binary")).parentFile.resolve("test-results")
+                    check(retained.deleteRecursively()) { "Could not clear retained test reports: $retained" }
+                    check(retained.mkdirs()) { "Could not create retained test reports: $retained" }
+                    try {
+                        runToolchain(session, testArguments, testTimeout ?: properties.getProperty("testTimeoutSeconds").toLong())
+                    } finally {
+                        // Keep diagnostics after session cleanup, including reports from failed tests.
+                        reports.walkTopDown().filter { it.isFile && it.name.startsWith("TEST-") && it.name.endsWith(".xml") }
+                            .forEach { report ->
+                                val target = retained.resolve(report.relativeTo(reports))
+                                target.parentFile.mkdirs()
+                                Files.copy(report.toPath(), target.toPath())
+                            }
+                    }
                     val results = Files.createDirectory(session.resolve(key))
-                    reports.walkTopDown().filter { it.isFile && it.name.startsWith("TEST-") && it.name.endsWith(".xml") }
-                        .forEach { Files.copy(it.toPath(), results.resolve("TEST-${UUID.randomUUID()}.xml")) }
+                    check(retained.copyRecursively(results.toFile(), overwrite = true)) { "Could not stage test reports: $retained" }
                     Files.writeString(session.resolve("$key.success"), "Tests completed successfully\n")
                 }
             } catch (failure: Exception) {

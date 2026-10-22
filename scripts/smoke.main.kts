@@ -147,6 +147,8 @@ temporary("ktc kover smoke ") { temporary ->
     check(!sharedXml.exists() && !sharedHtml.exists()) { "Timeout retained stale reports" }
     test.writeText(countedTest)
     coverage()
+    val otherReports = listOf("reports/example/js/TEST-platform.xml", "reports/uncovered/jvm/TEST-other.xml")
+    otherReports.forEach { write(sharedBuild, it, "prior test diagnostics\n") }
     copy(project.resolve("example"), project.resolve("second"))
     val projectYaml = project.resolve("project.yaml")
     projectYaml.writeText(projectYaml.readText().replace("  - example", "  - example\n  - second"))
@@ -154,5 +156,19 @@ temporary("ktc kover smoke ") { temporary ->
     coverage(extra = listOf("-m", "second"))
     check(runs.readLines().size == previousRuns + 2) { "Multi-module coverage skipped or duplicated tests" }
     check(sharedBuild.resolve("tasks/_second_koverReport@kover/coverage.xml").isFile)
-    println("Sequential coverage smoke passed: one test run, reused compilation, custom build path, failures, timeout and recovery.")
+    for (name in listOf("example", "second")) {
+        val junit = sharedBuild.resolve("tasks/_${name}_koverPrepare@kover/test-results/TEST-junit-jupiter.xml")
+        check(junit.isFile) { "Missing retained JUnit report for $name after session cleanup" }
+        val suite = factory.newDocumentBuilder().parse(junit).documentElement
+        check(suite.getAttribute("tests").toInt() > 0 && suite.getAttribute("failures").toInt() == 0) {
+            "Expected successful test diagnostics for $name"
+        }
+        check(sharedBuild.resolve("reports/$name/jvm/TEST-junit-jupiter.xml").readText() == junit.readText()) {
+            "Shared and retained JUnit reports differ for $name"
+        }
+    }
+    otherReports.forEach { path ->
+        check(sharedBuild.resolve(path).readText() == "prior test diagnostics\n") { "Deleted unrelated test report: $path" }
+    }
+    println("Sequential coverage smoke passed: one test run, reused compilation, custom build path, failures, timeout, recovery and multi-module report retention.")
 }
